@@ -1,5 +1,9 @@
 use std::{collections::HashMap, env};
 
+extern crate rand;
+use rand::rngs::ThreadRng;
+use rand::seq::SliceRandom;
+
 use ndarray::{arr2, s, Array2, Array3};
 
 const DEFAULT_SHAPE: (usize, usize) = (200, 200);
@@ -52,18 +56,21 @@ impl TileSet {
     }
 
     fn add_up(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        self.tileset[id1].u.push(id2);
-        self.tileset[id2].d.push(id1);
+        if !self.tileset[id1].u.contains(&id2) {
+            self.tileset[id1].u.push(id2);
+        }
+        if !self.tileset[id2].d.contains(&id1) {
+            self.tileset[id2].d.push(id1);
+        }
     }
-    fn add_down(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        self.add_up(id2, id1)
-    }
+
     fn add_left(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        self.tileset[id1].l.push(id2);
-        self.tileset[id2].r.push(id1);
-    }
-    fn add_right(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        self.add_left(id2, id1)
+        if !self.tileset[id1].l.contains(&id2) {
+            self.tileset[id1].l.push(id2);
+        }
+        if !self.tileset[id2].r.contains(&id1) {
+            self.tileset[id2].r.push(id1);
+        }
     }
 }
 
@@ -113,11 +120,14 @@ fn main() {
     let tileset: TileSet = get_tiles(get_input());
 
     let mut res: Option<Image> = None;
+
+    let mut rng: ThreadRng = rand::thread_rng();
+
     while res.is_none() {
         if animated || debug {
-            res = wfc_from_tileset_animated(&tileset, None);
+            res = wfc_from_tileset_animated(&tileset, None, &mut rng);
         } else {
-            res = wfc_from_tileset(&tileset, None);
+            res = wfc_from_tileset(&tileset, None, &mut rng);
         }
     }
     let _out_image: Image = res.unwrap();
@@ -139,12 +149,20 @@ fn parse_args() -> Config {
     config
 }
 
-fn wfc_from_tileset_animated(tileset: &TileSet, shape: Option<(usize, usize)>) -> Option<Image> {
+fn wfc_from_tileset_animated(
+    tileset: &TileSet,
+    shape: Option<(usize, usize)>,
+    rng: &mut ThreadRng,
+) -> Option<Image> {
     println!("for now animation not supported"); // FIXME: implement animation
     wfc_from_tileset(tileset, shape)
 }
 
-fn wfc_from_tileset(tileset: &TileSet, shape: Option<(usize, usize)>) -> Option<Image> {
+fn wfc_from_tileset(
+    tileset: &TileSet,
+    shape: Option<(usize, usize)>,
+    rng: &mut ThreadRng,
+) -> Option<Image> {
     let mut wave_function: WaveFunction =
         create_wave_function(tileset, shape.unwrap_or(DEFAULT_SHAPE));
     let mut entropy_field: EntropyField =
@@ -167,8 +185,16 @@ fn wfc_step(
     wave_function: &mut WaveFunction,
     entropy_field: &mut EntropyField,
     tileset: &TileSet,
+    rng: &mut ThreadRng,
 ) -> bool {
-    // TODO: find min entropy
+    let &min = entropy_field.iter().min().unwrap();
+    let mut candidates: Vec<(usize, usize)> = entropy_field
+        .indexed_iter()
+        .filter(|(_, &v)| v == min)
+        .map(|(c, _)| c)
+        .collect::<Vec<(usize, usize)>>();
+    candidates.shuffle(&mut rng);
+    let min_coords: (usize, usize) = candidates[0];
     // TODO: choose random tile
     // TODO: collapse the wavefunction
     // TODO: check if done or not
@@ -228,13 +254,6 @@ fn get_tiles(image: Image) -> TileSet {
                 tileset.add_up(base_id, up_id);
             }
 
-            // check down
-            if valid_coords(x as i32, y as i32 + 2, (shape[0] as i32, shape[1] as i32)) {
-                let down_slice = image.clone().slice_move(s![x..x + 2, y + 2..y + 4]);
-                let down_id: TileId = tileset.find(down_slice).unwrap();
-                tileset.add_down(base_id, down_id);
-            }
-
             // check left
             if valid_coords(x as i32 - 2, y as i32, (shape[0] as i32, shape[1] as i32)) {
                 let left_slice = image.clone().slice_move(s![x - 2..x, y..y + 2]);
@@ -242,12 +261,7 @@ fn get_tiles(image: Image) -> TileSet {
                 tileset.add_left(base_id, left_id);
             }
 
-            // check right
-            if valid_coords(x as i32 + 2, y as i32, (shape[0] as i32, shape[1] as i32)) {
-                let right_slice = image.clone().slice_move(s![x + 2..x + 4, y..y + 2]);
-                let right_id: TileId = tileset.find(right_slice).unwrap();
-                tileset.add_right(base_id, right_id);
-            }
+            // check down and right should be unnecessary
         }
     }
 
