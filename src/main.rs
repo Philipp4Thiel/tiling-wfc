@@ -41,6 +41,30 @@ impl TileSet {
     fn len(self: &TileSet) -> usize {
         self.tileset.len()
     }
+
+    fn find(self: &TileSet, tile: Image) -> Option<TileId> {
+        for t in &self.tileset {
+            if t.tile == tile {
+                return Some(t.id);
+            }
+        }
+        None
+    }
+
+    fn add_up(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
+        self.tileset[id1].u.push(id2);
+        self.tileset[id2].d.push(id1);
+    }
+    fn add_down(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
+        self.add_up(id2, id1)
+    }
+    fn add_left(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
+        self.tileset[id1].l.push(id2);
+        self.tileset[id2].r.push(id1);
+    }
+    fn add_right(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
+        self.add_left(id2, id1)
+    }
 }
 
 #[derive(Clone)]
@@ -121,12 +145,34 @@ fn wfc_from_tileset_animated(tileset: &TileSet, shape: Option<(usize, usize)>) -
 }
 
 fn wfc_from_tileset(tileset: &TileSet, shape: Option<(usize, usize)>) -> Option<Image> {
-    let mut _wave_function: WaveFunction =
+    let mut wave_function: WaveFunction =
         create_wave_function(tileset, shape.unwrap_or(DEFAULT_SHAPE));
-    let mut _entropy_field: EntropyField =
-        create_entropy_field(&_wave_function, shape.unwrap_or(DEFAULT_SHAPE));
+    let mut entropy_field: EntropyField =
+        create_entropy_field(&wave_function, shape.unwrap_or(DEFAULT_SHAPE));
 
-    todo!(); // TODO: actually implement algorithm
+    let mut done: bool = false;
+    while !done {
+        done = wfc_step(&mut wave_function, &mut entropy_field, tileset);
+    }
+
+    create_image(&wave_function, &tileset)
+}
+
+fn create_image(wave_function: &WaveFunction, tileset: &TileSet) -> Option<Image> {
+    // TODO: create image
+    None
+}
+
+fn wfc_step(
+    wave_function: &mut WaveFunction,
+    entropy_field: &mut EntropyField,
+    tileset: &TileSet,
+) -> bool {
+    // TODO: find min entropy
+    // TODO: choose random tile
+    // TODO: collapse the wavefunction
+    // TODO: check if done or not
+    true
 }
 
 fn create_entropy_field(wave_function: &WaveFunction, shape: (usize, usize)) -> EntropyField {
@@ -146,7 +192,7 @@ fn create_entropy_field(wave_function: &WaveFunction, shape: (usize, usize)) -> 
 fn create_wave_function(tileset: &TileSet, shape: (usize, usize)) -> WaveFunction {
     let dim: (usize, usize, usize) = (shape.0, shape.1, tileset.len());
     let wave_function: WaveFunction = Array3::from_elem(dim, true);
-    //TODO: depending on rules not every tile can be everywhere
+    //FIXME: depending on rules not every tile can be everywhere
     wave_function
 }
 
@@ -165,7 +211,46 @@ fn get_tiles(image: Image) -> TileSet {
             }
         }
     }
-    // TODO: create neighbour rules
+
+    fn valid_coords(x: i32, y: i32, shape: (i32, i32)) -> bool {
+        0 <= x && x < shape.0 - 2 && 0 <= y && y < shape.1 - 2
+    }
+
+    for x in (0..shape[0]).step_by(2) {
+        for y in (0..shape[1]).step_by(2) {
+            let slice: Image = image.clone().slice_move(s![x..x + 2, y..y + 2]);
+            let base_id: TileId = tileset.find(slice).unwrap();
+
+            // check up
+            if valid_coords(x as i32, y as i32 - 2, (shape[0] as i32, shape[1] as i32)) {
+                let up_slice = image.clone().slice_move(s![x..x + 2, y - 2..y]);
+                let up_id: TileId = tileset.find(up_slice).unwrap();
+                tileset.add_up(base_id, up_id);
+            }
+
+            // check down
+            if valid_coords(x as i32, y as i32 + 2, (shape[0] as i32, shape[1] as i32)) {
+                let down_slice = image.clone().slice_move(s![x..x + 2, y + 2..y + 4]);
+                let down_id: TileId = tileset.find(down_slice).unwrap();
+                tileset.add_down(base_id, down_id);
+            }
+
+            // check left
+            if valid_coords(x as i32 - 2, y as i32, (shape[0] as i32, shape[1] as i32)) {
+                let left_slice = image.clone().slice_move(s![x - 2..x, y..y + 2]);
+                let left_id: TileId = tileset.find(left_slice).unwrap();
+                tileset.add_left(base_id, left_id);
+            }
+
+            // check right
+            if valid_coords(x as i32 + 2, y as i32, (shape[0] as i32, shape[1] as i32)) {
+                let right_slice = image.clone().slice_move(s![x + 2..x + 4, y..y + 2]);
+                let right_id: TileId = tileset.find(right_slice).unwrap();
+                tileset.add_right(base_id, right_id);
+            }
+        }
+    }
+
     tileset
 }
 
