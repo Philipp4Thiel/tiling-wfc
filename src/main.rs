@@ -1,17 +1,23 @@
 extern crate ndarray;
 extern crate rand;
+extern crate raylib;
 
 mod wave_funcion_collapse {
     use rand::rngs::ThreadRng;
+    use raylib::prelude::*;
 
     pub type Coordinates = [usize; 2];
     pub struct WaveFunction {
-        pub done: bool,
+        done: bool,
     }
 
     impl WaveFunction {
         pub fn from_file() -> Self {
             todo!()
+        }
+
+        pub fn done(&self) -> bool {
+            self.done
         }
 
         fn get_min_entropy(&self, rng: &mut ThreadRng) -> Coordinates {
@@ -23,15 +29,15 @@ mod wave_funcion_collapse {
             todo!()
         }
 
-        pub fn show(&self) -> () {
+        pub fn show(&self, rl: &mut RaylibHandle, thread: &RaylibThread) -> () {
             todo!()
         }
     }
 }
 
-use std::{collections::HashMap, env};
-
 use rand::{rngs::ThreadRng, thread_rng};
+use raylib::prelude::*;
+use std::{collections::HashMap, env};
 
 use wave_funcion_collapse::WaveFunction;
 
@@ -59,13 +65,22 @@ fn main() {
 
     let &debug = config.get("debug").unwrap_or(&false);
     let &animated = config.get("animated").unwrap_or(&false);
-    
 
-    while !wave_function.done {
-        if animated || debug {
-            wave_function.show();
+    if animated || debug {
+        // FIXME: split animated ad not in a nicer way
+        let (mut rl, thread): (RaylibHandle, RaylibThread) = raylib::init()
+            .size((200) as i32, (200) as i32)
+            .title("Non-Tiling WFC")
+            .build();
+
+        while !wave_function.done() {
+            wave_function.show(&mut rl, &thread);
+            wave_function.collapse(&mut rng);
         }
-        wave_function.collapse(&mut rng);
+        wave_function.show(&mut rl, &thread);
+    } else {
+        while !wave_function.done() {
+            wave_function.collapse(&mut rng);
+        }
     }
-    wave_function.show();
 }
