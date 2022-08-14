@@ -3,6 +3,8 @@ extern crate rand;
 extern crate raylib;
 
 mod wave_funcion_collapse {
+    use std::ops::Index;
+
     use ndarray::{s, Array2, Array3};
     use rand::{rngs::ThreadRng, seq::SliceRandom};
     use raylib::prelude::*;
@@ -12,18 +14,70 @@ mod wave_funcion_collapse {
     type EntropyField = Array2<Entropy>;
     type WaveField = Array3<bool>;
 
-    struct Tileset {}
+    struct Tile {
+        left: Vec<Tile>,
+        right: Vec<Tile>,
+        up: Vec<Tile>,
+        down: Vec<Tile>,
+    }
 
+    struct Tileset {
+        tiles: Vec<Tile>,
+    }
+    impl Index<usize> for Tileset {
+        type Output = Tile;
+
+        fn index(&self, index: usize) -> &Self::Output {
+            &self.tiles[index]
+        }
+    }
     impl Tileset {
         fn from_file() -> Self {
-            todo!()
+            todo!() // TODO: implement from_file for Tileset
+        }
+
+        fn len(&self) -> usize {
+            self.tiles.len()
         }
     }
 
-    fn generate_wave_field(tileset: &Tileset) -> WaveField {
-        todo!()
-    }
+    fn generate_wave_field((shape_x, shape_y): (usize, usize), tileset: &Tileset) -> WaveField {
+        let num_tiles = tileset.len();
+        let mut wave_field: WaveField = Array3::from_elem((shape_x, shape_y, num_tiles), true);
 
+        for x in 0..shape_x {
+            for y in 0..shape_y {
+                for tile in 0..num_tiles {
+                    if x != 0 {
+                        // no valid left tile
+                        if tileset[tile].left.is_empty() {
+                            wave_field[[x, y, tile]] = false;
+                        }
+                    }
+                    if x != shape_x - 1 {
+                        // no valid right tile
+                        if tileset[tile].right.is_empty() {
+                            wave_field[[x, y, tile]] = false;
+                        }
+                    }
+                    if y != 0 {
+                        // no valid up tile
+                        if tileset[tile].up.is_empty() {
+                            wave_field[[x, y, tile]] = false;
+                        }
+                    }
+                    if y != shape_y - 1 {
+                        // no valid down tile
+                        if tileset[tile].down.is_empty() {
+                            wave_field[[x, y, tile]] = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        wave_field
+    }
     fn generate_entropy_field(wave_field: &WaveField) -> EntropyField {
         fn entropy((x, y): (usize, usize), wave_field: &WaveField) -> Entropy {
             wave_field
@@ -48,9 +102,9 @@ mod wave_funcion_collapse {
     }
 
     impl WaveFunction {
-        pub fn from_file() -> Self {
+        pub fn from_file(out_shape: (usize, usize)) -> Self {
             let tileset: Tileset = Tileset::from_file();
-            let wave_field: WaveField = generate_wave_field(&tileset);
+            let wave_field: WaveField = generate_wave_field(out_shape, &tileset);
             let entropy_field: EntropyField = generate_entropy_field(&wave_field);
 
             Self {
@@ -60,11 +114,9 @@ mod wave_funcion_collapse {
                 wave_field,
             }
         }
-
         pub fn done(&self) -> bool {
             self.done
         }
-
         fn get_min_entropy(&self, rng: &mut ThreadRng) -> Coordinates {
             let min = self.entropy_field.iter().min().unwrap();
             *self
@@ -82,11 +134,11 @@ mod wave_funcion_collapse {
                 return;
             }
             let coords: Coordinates = self.get_min_entropy(rng);
-            todo!()
+            todo!() // TODO: implement collapse function
         }
 
         pub fn show(&self, rl: &mut RaylibHandle, thread: &RaylibThread) -> () {
-            todo!()
+            todo!() // TODO: implement show function
         }
     }
 }
@@ -114,8 +166,10 @@ fn get_config() -> Config {
 }
 
 fn main() {
+    const OUTPUT_SIZE: (usize, usize) = (10, 10);
+
     let mut rng: ThreadRng = thread_rng();
-    let wave_function = WaveFunction::from_file();
+    let wave_function = WaveFunction::from_file(OUTPUT_SIZE);
     let config: Config = get_config();
 
     let &debug = config.get("debug").unwrap_or(&false);
