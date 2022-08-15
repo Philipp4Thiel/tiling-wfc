@@ -122,9 +122,9 @@ mod wave_funcion_collapse {
             *self
                 .entropy_field
                 .indexed_iter()
-                .filter(|(_, v)| *v == min)
+                .filter(|(_, v)| v == &min)
                 .map(|v| v.0)
-                .collect::<Vec<(usize, usize)>>()
+                .collect::<Vec<Coordinates>>()
                 .choose(rng)
                 .unwrap()
         }
