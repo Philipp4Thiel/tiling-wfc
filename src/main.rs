@@ -1,11 +1,11 @@
-extern crate ndarray;
-extern crate rand;
-extern crate raylib;
-
 mod wave_funcion_collapse {
-    use std::ops::Index;
+    use std::{
+        fmt::{Debug, Display},
+        ops::Index,
+    };
 
-    use ndarray::{s, Array2, Array3};
+    use image::{io::Reader, DynamicImage};
+    use ndarray::{s, Array2, Array3, ArrayView1};
     use rand::{rngs::ThreadRng, seq::SliceRandom};
     use raylib::prelude::*;
 
@@ -13,6 +13,29 @@ mod wave_funcion_collapse {
     type Entropy = usize;
     type EntropyField = Array2<Entropy>;
     type WaveField = Array3<bool>;
+
+    #[derive(Clone, Copy)]
+    struct Color(u8, u8, u8);
+
+    impl Debug for Color {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            if self.0 > self.1 && self.0 > self.2 {
+                write!(f, "R")
+            } else if self.1 > self.0 && self.1 > self.2 {
+                write!(f, "G")
+            } else if self.2 > self.1 && self.2 > self.0 {
+                write!(f, "B")
+            } else {
+                write!(f, " ")
+            }
+        }
+    }
+
+    impl Color {
+        fn from_ndarry_view(arr_view: ArrayView1<u8>) -> Self {
+            Self(arr_view[0], arr_view[1], arr_view[2])
+        }
+    }
 
     struct Tile {
         left: Vec<Tile>,
@@ -32,8 +55,58 @@ mod wave_funcion_collapse {
         }
     }
     impl Tileset {
-        fn from_file() -> Self {
-            todo!() // TODO: implement from_file for Tileset
+        fn from_file(path: &str) -> Self {
+            fn get_image(path: &str) -> DynamicImage {
+                let reader = match Reader::open(path) {
+                    Ok(reader) => reader,
+                    Err(_) => panic!("not able to open file"),
+                };
+
+                match reader.decode() {
+                    Ok(image) => image,
+                    Err(_) => panic!("not able to decode file"),
+                }
+            }
+            fn get_image_as_array3((width, height): (u32, u32), im_data: &[u8]) -> Array3<u8> {
+                assert_eq!(im_data.len() as u32, width * height * 3);
+                // if this isn't the sae there was an error in decoding the image (3 because rgb)
+
+                let shape: (usize, usize, usize) = (width as usize, height as usize, 3);
+                let mut image: Array3<u8> = Array3::from_elem(shape, 0);
+
+                for x in 0..width as usize {
+                    for y in 0..height as usize {
+                        for channel in 0..3 {
+                            let index: usize = 3 * (height as usize) * x + 3 * y + channel;
+                            image[[x, y, channel]] = im_data[index];
+                        }
+                    }
+                }
+
+                image
+            }
+            fn convert_array3u8_to_array2color(arr3: Array3<u8>) -> Array2<Color> {
+                let shape: &[usize] = arr3.shape();
+                let width: usize = shape[0];
+                let height: usize = shape[1];
+                let mut arr2: Array2<Color> = Array2::from_elem((width, height), Color(0, 0, 0));
+                for x in 0..width {
+                    for y in 0..height {
+                        arr2[[x, y]] = Color::from_ndarry_view(arr3.slice(s![x, y, ..]));
+                    }
+                }
+                arr2
+            }
+
+            let image: DynamicImage = get_image(path);
+            let im_shape: (u32, u32) = (image.width(), image.height());
+
+            let image_as_array3: Array3<u8> = get_image_as_array3(im_shape, image.as_bytes());
+            let image: Array2<Color> = convert_array3u8_to_array2color(image_as_array3);
+
+            println!("{:?}", image);
+            // TODO: generte Tileset from Array2
+            todo!()
         }
 
         fn len(&self) -> usize {
@@ -102,8 +175,8 @@ mod wave_funcion_collapse {
     }
 
     impl WaveFunction {
-        pub fn from_file(out_shape: (usize, usize)) -> Self {
-            let tileset: Tileset = Tileset::from_file();
+        pub fn from_file(out_shape: (usize, usize), path: &str) -> Self {
+            let tileset: Tileset = Tileset::from_file(path);
             let wave_field: WaveField = generate_wave_field(out_shape, &tileset);
             let entropy_field: EntropyField = generate_entropy_field(&wave_field);
 
@@ -166,10 +239,11 @@ fn get_config() -> Config {
 }
 
 fn main() {
-    const OUTPUT_SIZE: (usize, usize) = (10, 10);
+    const OUTPUT_SHAPE: (usize, usize) = (10, 10);
+    const INPUT_PATH: &str = "images/green_cross.png";
 
     let mut rng: ThreadRng = thread_rng();
-    let wave_function = WaveFunction::from_file(OUTPUT_SIZE);
+    let wave_function = WaveFunction::from_file(OUTPUT_SHAPE, INPUT_PATH);
     let config: Config = get_config();
 
     let &debug = config.get("debug").unwrap_or(&false);
