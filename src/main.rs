@@ -15,35 +15,48 @@ mod wave_funcion_collapse {
     type WaveField = Array3<bool>;
 
     #[derive(Clone, Copy)]
-    struct Color(u8, u8, u8);
-
+    struct Color {
+        r: u8,
+        g: u8,
+        b: u8,
+    }
     impl Debug for Color {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if self.0 > self.1 && self.0 > self.2 {
+            if self.r > self.g && self.r > self.b {
                 write!(f, "R")
-            } else if self.1 > self.0 && self.1 > self.2 {
+            } else if self.g > self.r && self.g > self.b {
                 write!(f, "G")
-            } else if self.2 > self.1 && self.2 > self.0 {
+            } else if self.b > self.g && self.b > self.r {
                 write!(f, "B")
             } else {
                 write!(f, " ")
             }
         }
     }
-
     impl Color {
         fn from_ndarry_view(arr_view: ArrayView1<u8>) -> Self {
-            Self(arr_view[0], arr_view[1], arr_view[2])
+            Self {
+                r: arr_view[0],
+                g: arr_view[1],
+                b: arr_view[2],
+            }
+        }
+
+        fn black() -> Self {
+            Self { r: 0, g: 0, b: 0 }
         }
     }
 
     struct Tile {
+        id: usize,
+        image: Array2<Color>,
         left: Vec<Tile>,
         right: Vec<Tile>,
         up: Vec<Tile>,
         down: Vec<Tile>,
     }
 
+    const TILE_SIZE: u32 = 3;
     struct Tileset {
         tiles: Vec<Tile>,
     }
@@ -55,7 +68,9 @@ mod wave_funcion_collapse {
         }
     }
     impl Tileset {
-        fn from_file(path: &str) -> Self {
+        fn from_png(path: &str) -> Self {
+            assert!(path.ends_with(".png"), "for now only pngs are supported");
+
             fn get_image(path: &str) -> DynamicImage {
                 let reader = match Reader::open(path) {
                     Ok(reader) => reader,
@@ -68,8 +83,23 @@ mod wave_funcion_collapse {
                 }
             }
             fn get_image_as_array3((width, height): (u32, u32), im_data: &[u8]) -> Array3<u8> {
-                assert_eq!(im_data.len() as u32, width * height * 3);
-                // if this isn't the sae there was an error in decoding the image (3 because rgb)
+                if im_data.len() as u32 != width * height * 3 {
+                    if im_data.len() as u32 == width * height * 4 {
+                        panic!("alpha channel not yet supported")
+                    }
+                    panic!("image doesn't have the format 3 bytes per pixel")
+                }
+
+                assert_eq!(
+                    width % TILE_SIZE,
+                    0,
+                    "can't create tileset if width is not multiple of TILE_SIZE"
+                );
+                assert_eq!(
+                    height % TILE_SIZE,
+                    0,
+                    "can't create tileset if height is not multiple of TILE_SIZE"
+                );
 
                 let shape: (usize, usize, usize) = (width as usize, height as usize, 3);
                 let mut image: Array3<u8> = Array3::from_elem(shape, 0);
@@ -89,7 +119,7 @@ mod wave_funcion_collapse {
                 let shape: &[usize] = arr3.shape();
                 let width: usize = shape[0];
                 let height: usize = shape[1];
-                let mut arr2: Array2<Color> = Array2::from_elem((width, height), Color(0, 0, 0));
+                let mut arr2: Array2<Color> = Array2::from_elem((width, height), Color::black());
                 for x in 0..width {
                     for y in 0..height {
                         arr2[[x, y]] = Color::from_ndarry_view(arr3.slice(s![x, y, ..]));
@@ -104,7 +134,6 @@ mod wave_funcion_collapse {
             let image_as_array3: Array3<u8> = get_image_as_array3(im_shape, image.as_bytes());
             let image: Array2<Color> = convert_array3u8_to_array2color(image_as_array3);
 
-            println!("{:?}", image);
             // TODO: generte Tileset from Array2
             todo!()
         }
@@ -175,8 +204,8 @@ mod wave_funcion_collapse {
     }
 
     impl WaveFunction {
-        pub fn from_file(out_shape: (usize, usize), path: &str) -> Self {
-            let tileset: Tileset = Tileset::from_file(path);
+        pub fn from_png(out_shape: (usize, usize), path: &str) -> Self {
+            let tileset: Tileset = Tileset::from_png(path);
             let wave_field: WaveField = generate_wave_field(out_shape, &tileset);
             let entropy_field: EntropyField = generate_entropy_field(&wave_field);
 
@@ -243,7 +272,7 @@ fn main() {
     const INPUT_PATH: &str = "images/green_cross.png";
 
     let mut rng: ThreadRng = thread_rng();
-    let wave_function = WaveFunction::from_file(OUTPUT_SHAPE, INPUT_PATH);
+    let wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
     let config: Config = get_config();
 
     let &debug = config.get("debug").unwrap_or(&false);
