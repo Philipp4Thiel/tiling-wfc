@@ -322,8 +322,9 @@ impl WaveFunction {
                             for draw_x in 0..scale {
                                 for draw_y in 0..scale {
                                     draw_handle.draw_pixel(
-                                        (canvas_x * scale + draw_x) as i32,
                                         (canvas_y * scale + draw_y) as i32,
+                                        (canvas_x * scale + draw_x) as i32,
+                                        // yes i know x and y are mixxed up, but turns out i'm stupid and this is the easiest fix :)
                                         wfc_color_to_rl_color(tile_im[[tile_x, tile_y]]),
                                     )
                                 }

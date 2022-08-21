@@ -25,8 +25,9 @@ fn get_config() -> Config {
     config
 }
 
-const OUTPUT_SHAPE: (usize, usize) = (10, 10);
-const INPUT_PATH: &str = "images/green_cross.png";
+const OUTPUT_SHAPE: (usize, usize) = (30, 30);
+const SHOW_SCALE: usize = 5; // only needed if using animated tag
+const INPUT_PATH: &str = "images/T.png";
 fn main() {
     let rng: ThreadRng = thread_rng();
     let wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
@@ -63,7 +64,6 @@ fn debug_runner(rng: ThreadRng, mut wave_function: WaveFunction) -> () {
 
 fn animated_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
     use wfc::tileset::TILE_SIZE;
-    const SHOW_SCALE: usize = 10;
     let canvas_shape = (
         OUTPUT_SHAPE.0 * TILE_SIZE * SHOW_SCALE,
         OUTPUT_SHAPE.1 * TILE_SIZE * SHOW_SCALE,
