@@ -1,255 +1,9 @@
-mod wave_funcion_collapse {
-    use std::{
-        fmt::{Debug, Display},
-        ops::Index,
-    };
-
-    use image::{io::Reader, DynamicImage};
-    use ndarray::{s, Array2, Array3, ArrayView1};
-    use rand::{rngs::ThreadRng, seq::SliceRandom};
-    use raylib::prelude::*;
-
-    type Coordinates = (usize, usize);
-    type Entropy = usize;
-    type EntropyField = Array2<Entropy>;
-    type WaveField = Array3<bool>;
-
-    #[derive(Clone, Copy)]
-    struct Color {
-        r: u8,
-        g: u8,
-        b: u8,
-    }
-    impl Debug for Color {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if self.r > self.g && self.r > self.b {
-                write!(f, "R")
-            } else if self.g > self.r && self.g > self.b {
-                write!(f, "G")
-            } else if self.b > self.g && self.b > self.r {
-                write!(f, "B")
-            } else {
-                write!(f, " ")
-            }
-        }
-    }
-    impl Color {
-        fn from_ndarry_view(arr_view: ArrayView1<u8>) -> Self {
-            Self {
-                r: arr_view[0],
-                g: arr_view[1],
-                b: arr_view[2],
-            }
-        }
-
-        fn black() -> Self {
-            Self { r: 0, g: 0, b: 0 }
-        }
-    }
-
-    struct Tile {
-        id: usize,
-        image: Array2<Color>,
-        left: Vec<Tile>,
-        right: Vec<Tile>,
-        up: Vec<Tile>,
-        down: Vec<Tile>,
-    }
-
-    const TILE_SIZE: u32 = 3;
-    struct Tileset {
-        tiles: Vec<Tile>,
-    }
-    impl Index<usize> for Tileset {
-        type Output = Tile;
-
-        fn index(&self, index: usize) -> &Self::Output {
-            &self.tiles[index]
-        }
-    }
-    impl Tileset {
-        fn from_png(path: &str) -> Self {
-            assert!(path.ends_with(".png"), "for now only pngs are supported");
-
-            fn get_image(path: &str) -> DynamicImage {
-                let reader = match Reader::open(path) {
-                    Ok(reader) => reader,
-                    Err(_) => panic!("not able to open file"),
-                };
-
-                match reader.decode() {
-                    Ok(image) => image,
-                    Err(_) => panic!("not able to decode file"),
-                }
-            }
-            fn get_image_as_array3((width, height): (u32, u32), im_data: &[u8]) -> Array3<u8> {
-                if im_data.len() as u32 != width * height * 3 {
-                    if im_data.len() as u32 == width * height * 4 {
-                        panic!("alpha channel not yet supported")
-                    }
-                    panic!("image doesn't have the format 3 bytes per pixel")
-                }
-
-                assert_eq!(
-                    width % TILE_SIZE,
-                    0,
-                    "can't create tileset if width is not multiple of TILE_SIZE"
-                );
-                assert_eq!(
-                    height % TILE_SIZE,
-                    0,
-                    "can't create tileset if height is not multiple of TILE_SIZE"
-                );
-
-                let shape: (usize, usize, usize) = (width as usize, height as usize, 3);
-                let mut image: Array3<u8> = Array3::from_elem(shape, 0);
-
-                for x in 0..width as usize {
-                    for y in 0..height as usize {
-                        for channel in 0..3 {
-                            let index: usize = 3 * (height as usize) * x + 3 * y + channel;
-                            image[[x, y, channel]] = im_data[index];
-                        }
-                    }
-                }
-
-                image
-            }
-            fn convert_array3u8_to_array2color(arr3: Array3<u8>) -> Array2<Color> {
-                let shape: &[usize] = arr3.shape();
-                let width: usize = shape[0];
-                let height: usize = shape[1];
-                let mut arr2: Array2<Color> = Array2::from_elem((width, height), Color::black());
-                for x in 0..width {
-                    for y in 0..height {
-                        arr2[[x, y]] = Color::from_ndarry_view(arr3.slice(s![x, y, ..]));
-                    }
-                }
-                arr2
-            }
-
-            let image: DynamicImage = get_image(path);
-            let im_shape: (u32, u32) = (image.width(), image.height());
-
-            let image_as_array3: Array3<u8> = get_image_as_array3(im_shape, image.as_bytes());
-            let image: Array2<Color> = convert_array3u8_to_array2color(image_as_array3);
-
-            // TODO: generte Tileset from Array2
-            todo!()
-        }
-
-        fn len(&self) -> usize {
-            self.tiles.len()
-        }
-    }
-
-    fn generate_wave_field((shape_x, shape_y): (usize, usize), tileset: &Tileset) -> WaveField {
-        let num_tiles = tileset.len();
-        let mut wave_field: WaveField = Array3::from_elem((shape_x, shape_y, num_tiles), true);
-
-        for x in 0..shape_x {
-            for y in 0..shape_y {
-                for tile in 0..num_tiles {
-                    if x != 0 {
-                        // no valid left tile
-                        if tileset[tile].left.is_empty() {
-                            wave_field[[x, y, tile]] = false;
-                        }
-                    }
-                    if x != shape_x - 1 {
-                        // no valid right tile
-                        if tileset[tile].right.is_empty() {
-                            wave_field[[x, y, tile]] = false;
-                        }
-                    }
-                    if y != 0 {
-                        // no valid up tile
-                        if tileset[tile].up.is_empty() {
-                            wave_field[[x, y, tile]] = false;
-                        }
-                    }
-                    if y != shape_y - 1 {
-                        // no valid down tile
-                        if tileset[tile].down.is_empty() {
-                            wave_field[[x, y, tile]] = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        wave_field
-    }
-    fn generate_entropy_field(wave_field: &WaveField) -> EntropyField {
-        fn entropy((x, y): (usize, usize), wave_field: &WaveField) -> Entropy {
-            wave_field
-                .slice(s![x, y, ..])
-                .iter()
-                .filter(|&&b| b)
-                .count()
-        }
-
-        let wave_field_shape: &[usize] = wave_field.shape();
-        let entropy_shape: (usize, usize) = (wave_field_shape[0], wave_field_shape[1]);
-        let entropy_field: EntropyField =
-            Array2::from_shape_fn(entropy_shape, |(x, y)| entropy((x, y), wave_field));
-        entropy_field
-    }
-
-    pub struct WaveFunction {
-        done: bool,
-        tileset: Tileset,
-        entropy_field: EntropyField,
-        wave_field: WaveField,
-    }
-
-    impl WaveFunction {
-        pub fn from_png(out_shape: (usize, usize), path: &str) -> Self {
-            let tileset: Tileset = Tileset::from_png(path);
-            let wave_field: WaveField = generate_wave_field(out_shape, &tileset);
-            let entropy_field: EntropyField = generate_entropy_field(&wave_field);
-
-            Self {
-                done: false,
-                tileset,
-                entropy_field,
-                wave_field,
-            }
-        }
-        pub fn done(&self) -> bool {
-            self.done
-        }
-        fn get_min_entropy(&self, rng: &mut ThreadRng) -> Coordinates {
-            let min = self.entropy_field.iter().min().unwrap();
-            *self
-                .entropy_field
-                .indexed_iter()
-                .filter(|(_, v)| v == &min)
-                .map(|v| v.0)
-                .collect::<Vec<Coordinates>>()
-                .choose(rng)
-                .unwrap()
-        }
-
-        pub fn collapse(&self, rng: &mut ThreadRng) -> () {
-            if self.done {
-                return;
-            }
-            let coords: Coordinates = self.get_min_entropy(rng);
-            todo!() // TODO: implement collapse function
-        }
-
-        pub fn show(&self, rl: &mut RaylibHandle, thread: &RaylibThread) -> () {
-            todo!() // TODO: implement show function
-        }
-    }
-}
-
 use rand::{rngs::ThreadRng, thread_rng};
 use raylib::prelude::*;
 use std::{collections::HashMap, env};
 
-use wave_funcion_collapse::WaveFunction;
+mod wfc;
+use wfc::WaveFunction;
 
 type Config = HashMap<String, bool>;
 
@@ -264,35 +18,72 @@ fn get_config() -> Config {
         "animated".to_string(),
         args.iter().any(|s| s.eq("-A") || s.eq("--animated")),
     );
+    config.insert(
+        "testing".to_string(),
+        args.iter().any(|s| s.eq("-T") || s.eq("--testing")),
+    );
     config
 }
 
+const OUTPUT_SHAPE: (usize, usize) = (10, 10);
+const INPUT_PATH: &str = "images/green_cross.png";
 fn main() {
-    const OUTPUT_SHAPE: (usize, usize) = (10, 10);
-    const INPUT_PATH: &str = "images/green_cross.png";
-
-    let mut rng: ThreadRng = thread_rng();
-    let wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let rng: ThreadRng = thread_rng();
+    let wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
     let config: Config = get_config();
 
     let &debug = config.get("debug").unwrap_or(&false);
     let &animated = config.get("animated").unwrap_or(&false);
+    let &testing = config.get("testing").unwrap_or(&false);
 
-    if animated || debug {
-        // FIXME: split animated ad not in a nicer way
-        let (mut rl, thread): (RaylibHandle, RaylibThread) = raylib::init()
-            .size((200) as i32, (200) as i32)
-            .title("Non-Tiling WFC")
-            .build();
-
-        while !wave_function.done() {
-            wave_function.show(&mut rl, &thread);
-            wave_function.collapse(&mut rng);
-        }
-        wave_function.show(&mut rl, &thread);
+    type Runner = fn(ThreadRng, WaveFunction) -> ();
+    let runner: Runner = if testing {
+        testing_runner
+    } else if animated {
+        animated_runner
+    } else if debug {
+        debug_runner
     } else {
-        while !wave_function.done() {
+        default_runner
+    };
+
+    runner(rng, wave_function);
+}
+
+fn default_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+    while !wave_function.done() {
+        wave_function.collapse(&mut rng);
+    }
+}
+
+#[allow(unused_mut)]
+fn debug_runner(rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+    animated_runner(rng, wave_function)
+}
+
+fn animated_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+    use wfc::tileset::TILE_SIZE;
+    const SHOW_SCALE: usize = 10;
+    let canvas_shape = (
+        OUTPUT_SHAPE.0 * TILE_SIZE * SHOW_SCALE,
+        OUTPUT_SHAPE.1 * TILE_SIZE * SHOW_SCALE,
+    );
+    let (mut rl, thread): (RaylibHandle, RaylibThread) = raylib::init()
+        .size((canvas_shape.0) as i32, (canvas_shape.1) as i32)
+        .title("Non-Tiling WFC")
+        .build();
+
+    while !rl.window_should_close() {
+        wave_function.show(&mut rl, &thread, SHOW_SCALE);
+        if !wave_function.done() {
             wave_function.collapse(&mut rng);
         }
     }
+}
+
+#[allow(unused_mut)]
+fn testing_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+    println!("testing");
+    wave_function.print_tileset();
+    wave_function.collapse(&mut rng)
 }
