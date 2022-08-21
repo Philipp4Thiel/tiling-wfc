@@ -1,290 +1,135 @@
+use rand::{rngs::ThreadRng, thread_rng};
+use raylib::prelude::*;
 use std::{collections::HashMap, env};
 
-extern crate rand;
-use rand::rngs::ThreadRng;
-use rand::seq::SliceRandom;
+mod wfc;
+use wfc::WaveFunction;
 
-use ndarray::{arr2, s, Array2, Array3};
-
-const DEFAULT_SHAPE: (usize, usize) = (200, 200);
-
-type TileId = usize;
-type Image = Array2<u32>;
-type WaveFunction = Array3<bool>;
-type Entropy = u8;
-type EntropyField = Array2<Entropy>;
 type Config = HashMap<String, bool>;
 
-struct TileSet {
-    tileset: Vec<Tile>,
-}
-impl TileSet {
-    fn new() -> TileSet {
-        TileSet {
-            tileset: Vec::new(),
-        }
-    }
-
-    fn new_tile(self: &mut TileSet, image: Image) -> () {
-        let tile: Tile = Tile::new(self.len(), image);
-        self.tileset.push(tile)
-    }
-
-    fn iter(self: &TileSet) -> std::slice::Iter<Tile> {
-        self.tileset.iter()
-    }
-
-    fn get(self: &TileSet, id: TileId) -> Option<&Tile> {
-        if id < self.len() {
-            Some(&self.tileset[id])
-        } else {
-            None
-        }
-    }
-
-    fn len(self: &TileSet) -> usize {
-        self.tileset.len()
-    }
-
-    fn find(self: &TileSet, tile: Image) -> Option<TileId> {
-        for t in &self.tileset {
-            if t.tile == tile {
-                return Some(t.id);
-            }
-        }
-        None
-    }
-
-    fn add_up(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        if !self.tileset[id1].u.contains(&id2) {
-            self.tileset[id1].u.push(id2);
-        }
-        if !self.tileset[id2].d.contains(&id1) {
-            self.tileset[id2].d.push(id1);
-        }
-    }
-
-    fn add_left(self: &mut TileSet, id1: TileId, id2: TileId) -> () {
-        if !self.tileset[id1].l.contains(&id2) {
-            self.tileset[id1].l.push(id2);
-        }
-        if !self.tileset[id2].r.contains(&id1) {
-            self.tileset[id2].r.push(id1);
-        }
-    }
-}
-
-#[derive(Clone)]
-struct Tile {
-    id: TileId,
-    tile: Image,
-    l: Vec<TileId>,
-    r: Vec<TileId>,
-    u: Vec<TileId>,
-    d: Vec<TileId>,
-}
-impl Tile {
-    fn left(self: &Tile, id: TileId) -> bool {
-        self.l.contains(&id)
-    }
-
-    fn right(self: &Tile, id: TileId) -> bool {
-        self.r.contains(&id)
-    }
-
-    fn up(self: &Tile, id: TileId) -> bool {
-        self.u.contains(&id)
-    }
-
-    fn down(self: &Tile, id: TileId) -> bool {
-        self.d.contains(&id)
-    }
-
-    fn new(id: TileId, tile: Image) -> Tile {
-        Tile {
-            id,
-            tile,
-            l: Vec::new(),
-            r: Vec::new(),
-            u: Vec::new(),
-            d: Vec::new(),
-        }
-    }
-}
-
-fn main() {
-    let config: Config = parse_args();
-    let &debug = config.get(&"debug".to_string()).unwrap_or(&false);
-    let &animated = config.get(&"animated".to_string()).unwrap_or(&false);
-
-    let tileset: TileSet = get_tiles(get_input());
-
-    let mut res: Option<Image> = None;
-
-    let mut rng: ThreadRng = rand::thread_rng();
-
-    while res.is_none() {
-        if animated || debug {
-            res = wfc_from_tileset_animated(&tileset, None, &mut rng);
-        } else {
-            res = wfc_from_tileset(&tileset, None, &mut rng);
-        }
-    }
-    let _out_image: Image = res.unwrap();
-
-    // FIXME: show out_image
-}
-
-fn parse_args() -> Config {
-    let args: Vec<String> = env::args().collect();
-
-    let debug: bool = args.iter().any(|s| s.eq("--debug") || s.eq("-D"));
-    let animated: bool = args.iter().any(|s| s.eq("--animated") || s.eq("-A"));
-
+fn get_config() -> Config {
     let mut config: Config = HashMap::new();
-
-    config.insert("debug".to_string(), debug);
-    config.insert("animated".to_string(), animated);
-
+    let args = env::args().collect::<Vec<String>>();
+    config.insert(
+        "debug".to_string(),
+        args.iter().any(|s| s.eq("-D") || s.eq("--debug")),
+    );
+    config.insert(
+        "animated".to_string(),
+        args.iter().any(|s| s.eq("-A") || s.eq("--animated")),
+    );
+    config.insert(
+        "testing".to_string(),
+        args.iter().any(|s| s.eq("-T") || s.eq("--testing")),
+    );
     config
 }
 
-fn wfc_from_tileset_animated(
-    tileset: &TileSet,
-    shape: Option<(usize, usize)>,
-    rng: &mut ThreadRng,
-) -> Option<Image> {
-    println!("for now animation not supported"); // FIXME: implement animation
-    wfc_from_tileset(tileset, shape)
+const OUTPUT_SHAPE: (usize, usize) = (100, 100);
+const SHOW_SCALE: usize = 2; // only needed if using animated tag
+const INPUT_PATH: &str = "images/house.png"; // yes why use variable input when you can hardcode it :5head:
+fn main() {
+    let config: Config = get_config();
+
+    let &debug = config.get("debug").unwrap_or(&false);
+    let &animated = config.get("animated").unwrap_or(&false);
+    let &testing = config.get("testing").unwrap_or(&false);
+
+    type Runner = fn() -> WaveFunction;
+    let runner: Runner = if testing {
+        testing_runner
+    } else if animated {
+        animated_runner
+    } else if debug {
+        debug_runner
+    } else {
+        default_runner
+    };
+    let _res = runner();
+    // FIXME: create png from `_res`
 }
 
-fn wfc_from_tileset(
-    tileset: &TileSet,
-    shape: Option<(usize, usize)>,
-    rng: &mut ThreadRng,
-) -> Option<Image> {
-    let mut wave_function: WaveFunction =
-        create_wave_function(tileset, shape.unwrap_or(DEFAULT_SHAPE));
-    let mut entropy_field: EntropyField =
-        create_entropy_field(&wave_function, shape.unwrap_or(DEFAULT_SHAPE));
+fn default_runner() -> WaveFunction {
+    let mut res: Result<(), ()> = Err(());
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
+    let mut counter = 1;
+    while let Err(_) = res {
+        println!("try: {counter}");
+        counter += 1;
 
-    let mut done: bool = false;
-    while !done {
-        done = wfc_step(&mut wave_function, &mut entropy_field, tileset);
-    }
-
-    create_image(&wave_function, &tileset)
-}
-
-fn create_image(wave_function: &WaveFunction, tileset: &TileSet) -> Option<Image> {
-    // TODO: create image
-    None
-}
-
-fn wfc_step(
-    wave_function: &mut WaveFunction,
-    entropy_field: &mut EntropyField,
-    tileset: &TileSet,
-    rng: &mut ThreadRng,
-) -> bool {
-    let &min = entropy_field.iter().min().unwrap();
-    let mut candidates: Vec<(usize, usize)> = entropy_field
-        .indexed_iter()
-        .filter(|(_, &v)| v == min)
-        .map(|(c, _)| c)
-        .collect::<Vec<(usize, usize)>>();
-    candidates.shuffle(&mut rng);
-    let min_coords: (usize, usize) = candidates[0];
-    // TODO: choose random tile
-    // TODO: collapse the wavefunction
-    // TODO: check if done or not
-    true
-}
-
-fn create_entropy_field(wave_function: &WaveFunction, shape: (usize, usize)) -> EntropyField {
-    let mut entropy: EntropyField = Array2::zeros(shape);
-    for x in 0..shape.0 {
-        for y in 0..shape.1 {
-            entropy[[x, y]] =
-                wave_function
-                    .slice(s![x, y, ..])
-                    .iter()
-                    .fold(0, |n, &b| if b { n + 1 } else { n })
+        wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+        while !wave_function.done() {
+            res = wave_function.collapse(&mut rng);
+            if res.is_err() {
+                break;
+            }
         }
     }
-    entropy
-}
-
-fn create_wave_function(tileset: &TileSet, shape: (usize, usize)) -> WaveFunction {
-    let dim: (usize, usize, usize) = (shape.0, shape.1, tileset.len());
-    let wave_function: WaveFunction = Array3::from_elem(dim, true);
-    //FIXME: depending on rules not every tile can be everywhere
     wave_function
 }
 
-fn get_tiles(image: Image) -> TileSet {
-    let shape: &[usize] = image.shape();
-    assert_eq!(shape.len(), 2);
-    assert!(shape[0] >= 4 && shape[1] >= 4);
-
-    let mut tileset: TileSet = TileSet::new();
-
-    for x in (0..shape[0]).step_by(2) {
-        for y in (0..shape[1]).step_by(2) {
-            let slice: Image = image.clone().slice_move(s![x..x + 2, y..y + 2]);
-            if !tileset.iter().any(|t| t.tile == slice) {
-                tileset.new_tile(slice);
-            }
-        }
-    }
-
-    fn valid_coords(x: i32, y: i32, shape: (i32, i32)) -> bool {
-        0 <= x && x < shape.0 - 2 && 0 <= y && y < shape.1 - 2
-    }
-
-    for x in (0..shape[0]).step_by(2) {
-        for y in (0..shape[1]).step_by(2) {
-            let slice: Image = image.clone().slice_move(s![x..x + 2, y..y + 2]);
-            let base_id: TileId = tileset.find(slice).unwrap();
-
-            // check up
-            if valid_coords(x as i32, y as i32 - 2, (shape[0] as i32, shape[1] as i32)) {
-                let up_slice = image.clone().slice_move(s![x..x + 2, y - 2..y]);
-                let up_id: TileId = tileset.find(up_slice).unwrap();
-                tileset.add_up(base_id, up_id);
-            }
-
-            // check left
-            if valid_coords(x as i32 - 2, y as i32, (shape[0] as i32, shape[1] as i32)) {
-                let left_slice = image.clone().slice_move(s![x - 2..x, y..y + 2]);
-                let left_id: TileId = tileset.find(left_slice).unwrap();
-                tileset.add_left(base_id, left_id);
-            }
-
-            // check down and right should be unnecessary
-        }
-    }
-
-    tileset
+#[allow(unused_mut)]
+fn debug_runner() -> WaveFunction {
+    animated_runner()
 }
 
-fn get_input() -> Image {
-    // FIXME: use png as input
+fn animated_runner() -> WaveFunction {
+    use wfc::tileset::TILE_SIZE;
+    let canvas_shape = (
+        OUTPUT_SHAPE.0 * TILE_SIZE * SHOW_SCALE,
+        OUTPUT_SHAPE.1 * TILE_SIZE * SHOW_SCALE,
+    );
+    let (mut rl, thread): (RaylibHandle, RaylibThread) = raylib::init()
+        .size((canvas_shape.0) as i32, (canvas_shape.1) as i32)
+        .title("Non-Tiling WFC")
+        .build();
 
-    const R: u32 = 0xFF0000FF;
-    const L: u32 = 0x00FF00FF;
-    const B: u32 = 0x0000FFFF;
+    let mut res: Result<(), ()> = Err(());
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
 
-    arr2(&[
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-        [R, R, R, R, L, L, R, R, R, R],
-        [R, R, R, R, L, L, R, R, R, R],
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-        [B, B, B, B, R, R, B, B, B, B],
-    ])
+    let mut counter = 1;
+
+    while !rl.window_should_close() {
+        if rl.is_key_down(KeyboardKey::KEY_SPACE) {
+            break;
+        }
+        let mut d = rl.begin_drawing(&thread);
+        d.clear_background(Color::GRAY);
+    }
+
+    while let Err(_) = res {
+        println!("try: {counter}");
+        counter += 1;
+
+        wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+
+        while !wave_function.done() {
+            if rl.window_should_close() {
+                panic!("window was closed");
+            }
+            wave_function.show(&mut rl, &thread, SHOW_SCALE);
+            res = wave_function.collapse(&mut rng);
+            if res.is_err() {
+                break;
+            }
+        }
+    }
+
+    while !rl.window_should_close() {
+        wave_function.show(&mut rl, &thread, SHOW_SCALE);
+    }
+
+    wave_function
+}
+
+#[allow(unused_mut)]
+fn testing_runner() -> WaveFunction {
+    println!("testing");
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
+    wave_function.print_tileset();
+    let _res = wave_function.collapse(&mut rng);
+    wave_function
 }
