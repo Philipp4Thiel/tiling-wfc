@@ -25,19 +25,17 @@ fn get_config() -> Config {
     config
 }
 
-const OUTPUT_SHAPE: (usize, usize) = (30, 30);
-const SHOW_SCALE: usize = 5; // only needed if using animated tag
-const INPUT_PATH: &str = "images/T.png";
+const OUTPUT_SHAPE: (usize, usize) = (100, 100);
+const SHOW_SCALE: usize = 2; // only needed if using animated tag
+const INPUT_PATH: &str = "images/house.png"; // yes why use variable input when you can hardcode it :5head:
 fn main() {
-    let rng: ThreadRng = thread_rng();
-    let wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
     let config: Config = get_config();
 
     let &debug = config.get("debug").unwrap_or(&false);
     let &animated = config.get("animated").unwrap_or(&false);
     let &testing = config.get("testing").unwrap_or(&false);
 
-    type Runner = fn(ThreadRng, WaveFunction) -> ();
+    type Runner = fn() -> WaveFunction;
     let runner: Runner = if testing {
         testing_runner
     } else if animated {
@@ -47,22 +45,36 @@ fn main() {
     } else {
         default_runner
     };
-
-    runner(rng, wave_function);
+    let _res = runner();
+    // FIXME: create png from `_res`
 }
 
-fn default_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
-    while !wave_function.done() {
-        wave_function.collapse(&mut rng);
+fn default_runner() -> WaveFunction {
+    let mut res: Result<(), ()> = Err(());
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
+    let mut counter = 1;
+    while let Err(_) = res {
+        println!("try: {counter}");
+        counter += 1;
+
+        wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+        while !wave_function.done() {
+            res = wave_function.collapse(&mut rng);
+            if res.is_err() {
+                break;
+            }
+        }
     }
+    wave_function
 }
 
 #[allow(unused_mut)]
-fn debug_runner(rng: ThreadRng, mut wave_function: WaveFunction) -> () {
-    animated_runner(rng, wave_function)
+fn debug_runner() -> WaveFunction {
+    animated_runner()
 }
 
-fn animated_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+fn animated_runner() -> WaveFunction {
     use wfc::tileset::TILE_SIZE;
     let canvas_shape = (
         OUTPUT_SHAPE.0 * TILE_SIZE * SHOW_SCALE,
@@ -73,17 +85,51 @@ fn animated_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
         .title("Non-Tiling WFC")
         .build();
 
+    let mut res: Result<(), ()> = Err(());
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
+
+    let mut counter = 1;
+
     while !rl.window_should_close() {
-        wave_function.show(&mut rl, &thread, SHOW_SCALE);
-        if !wave_function.done() {
-            wave_function.collapse(&mut rng);
+        if rl.is_key_down(KeyboardKey::KEY_SPACE) {
+            break;
+        }
+        let mut d = rl.begin_drawing(&thread);
+        d.clear_background(Color::GRAY);
+    }
+
+    while let Err(_) = res {
+        println!("try: {counter}");
+        counter += 1;
+
+        wave_function = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+
+        while !wave_function.done() {
+            if rl.window_should_close() {
+                panic!("window was closed");
+            }
+            wave_function.show(&mut rl, &thread, SHOW_SCALE);
+            res = wave_function.collapse(&mut rng);
+            if res.is_err() {
+                break;
+            }
         }
     }
+
+    while !rl.window_should_close() {
+        wave_function.show(&mut rl, &thread, SHOW_SCALE);
+    }
+
+    wave_function
 }
 
 #[allow(unused_mut)]
-fn testing_runner(mut rng: ThreadRng, mut wave_function: WaveFunction) -> () {
+fn testing_runner() -> WaveFunction {
     println!("testing");
+    let mut wave_function: WaveFunction = WaveFunction::from_png(OUTPUT_SHAPE, INPUT_PATH);
+    let mut rng: ThreadRng = thread_rng();
     wave_function.print_tileset();
-    wave_function.collapse(&mut rng)
+    let _res = wave_function.collapse(&mut rng);
+    wave_function
 }

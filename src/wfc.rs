@@ -84,20 +84,23 @@ impl WaveFunction {
     pub fn done(&self) -> bool {
         self.done
     }
-    fn get_min_entropy(&mut self, rng: &mut ThreadRng) -> Option<Coordinates> {
+    fn get_min_entropy(&mut self, rng: &mut ThreadRng) -> Result<Option<Coordinates>, ()> {
         if self.done() {
-            return None;
+            return Ok(None);
         }
         let min_opt = self.entropy_field.iter().filter(|&&x| x != 1).min();
 
         if min_opt.is_none() {
             self.done = true;
-            return None;
+            return Ok(None);
         }
 
         let min = min_opt.unwrap();
 
-        assert_ne!(*min, 0, "minimum entropy is 0");
+        if min == &0 {
+            return Err(());
+        }
+
         let res = *self
             .entropy_field
             .indexed_iter()
@@ -107,22 +110,22 @@ impl WaveFunction {
             .choose(rng)
             .unwrap();
 
-        Some(res)
+        Ok(Some(res))
     }
     pub fn print_tileset(&self) {
         self.tileset.print();
     }
 
-    pub fn collapse(&mut self, rng: &mut ThreadRng) -> () {
+    pub fn collapse(&mut self, rng: &mut ThreadRng) -> Result<(), ()> {
         fn is_valid_coords(coords: [isize; 2], shape: &[usize]) -> bool {
             let x = coords[0] as usize;
             let y = coords[1] as usize;
             return x < shape[0] && y < shape[1];
         }
 
-        let coords_opt: Option<Coordinates> = self.get_min_entropy(rng);
+        let coords_opt: Option<Coordinates> = self.get_min_entropy(rng)?;
         if coords_opt.is_none() {
-            return;
+            return Ok(());
         }
 
         let (x, y): Coordinates = coords_opt.unwrap();
@@ -168,7 +171,11 @@ impl WaveFunction {
 
         while let Some((x, y)) = stack.pop() {
             let local_entropy = self.entropy_field[[x, y]];
-            assert_ne!(local_entropy, 0, "entropy reached 0 at ({x}, {y})");
+
+            if local_entropy == 0 {
+                return Err(());
+            }
+
             let num_tiles = self.tileset.len();
             let mut local_superposition = vec![true; num_tiles];
 
@@ -283,6 +290,7 @@ impl WaveFunction {
                 self.entropy_field[[x, y]] = count;
             }
         }
+        Ok(())
     }
 
     pub fn show(&self, rl: &mut RaylibHandle, thread: &RaylibThread, scale: usize) -> () {
